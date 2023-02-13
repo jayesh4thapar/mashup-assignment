@@ -1,5 +1,6 @@
 import smtplib
 import urllib
+import urllib.error
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -12,10 +13,10 @@ from moviepy.editor import VideoFileClip,concatenate_videoclips
 from moviepy.editor import concatenate_audioclips, AudioFileClip
 from youtube_search import YoutubeSearch
 import json
-from pytube import YouTube
+from pytube import Playlist,YouTube
+from pytube.exceptions import VideoUnavailable,MembersOnly,LiveStreamError,ExtractError,HTMLParseError,AgeRestrictedError,PytubeError,VideoPrivate,VideoRegionBlocked,RecordingUnavailable
 import os
 from pydub import AudioSegment
-
 def download_videos_and_convert_into_audio(singer, n):
     url="https://www.youtube.com/results?search_query=" + singer + " music video"
     url=url.replace(" ","%20")
@@ -26,24 +27,26 @@ def download_videos_and_convert_into_audio(singer, n):
     temp_videos = list(set(temp_videos))
     videos = []
     idx = 1
-    for video in temp_videos:
-        if idx > n:
-            break
-        yt = YouTube(video)
-        if yt.length/60 < 5.00:
-            videos.append(video)
-            idx += 1
+    count=1
     destination = "Video_files"
     print('downloading...')
-    count=1
-    for video in videos:
-      st.success("Downloading song "+ str(count)+ "...")
-      count+=1
-      yt= YouTube(video)
-      video_1 =yt.streams.filter(file_extension='mp4',res="360p").first()
-      out_file = video_1.download(output_path=destination)
-      basePath, extension = os.path.splitext(out_file)
-      video = VideoFileClip(os.path.join(basePath + ".mp4"))
+    for video in temp_videos:
+      if idx > n:
+        break
+      yt = YouTube(video)
+      if yt.length/int(60) < 5:
+          videos.append(video)
+          idx += 1
+          with st.spinner(text="Downloading song "+ str(count)+ "..."):
+            count+=1
+            try:
+              yt= YouTube(video)
+              video_1 =yt.streams.filter(file_extension='mp4',res="360p").first()
+              out_file = video_1.download(output_path=destination)
+              basePath, extension = os.path.splitext(out_file)
+              video = VideoFileClip(os.path.join(basePath + ".mp4"))
+            except VideoUnavailable or ExtractError or AgeRestrictedError or HTMLParseError or LiveStreamError or MembersOnly or PytubeError or VideoPrivate or VideoRegionBlocked or RecordingUnavailable or urllib.error.URLError or LiveStreamError:
+              continue
     print('downloaded')
 
 def cut_first_y_sec(singer, n, y):
@@ -59,15 +62,12 @@ def cut_first_y_sec(singer, n, y):
   concat = concatenate_audioclips(clips)
   concat.write_audiofile('concat.mp3')
   print('cutting done')
-  st.success('Creating your mashup...')
-
 def zipit(file):
     destination='mashup.zip'
     zip_file=zipfile.ZipFile(destination,'w')
     zip_file.write(file,compress_type=zipfile.ZIP_DEFLATED)
     zip_file.close()
     return destination
-
 def mail(item,em):
     smtp_port = 587           
     smtp_server = "smtp.gmail.com" 
@@ -78,32 +78,32 @@ def mail(item,em):
     body = f"""
     This mail was sent for mashup assignment program 2
     """
-    msg = MIMEMultipart()
-    msg['From'] = email_from
-    msg['To'] = email_to
-    msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
-    filename = item
-    attachment= open(filename, 'rb') 
-    attachment_package = MIMEBase('application', 'octet-stream')
-    attachment_package.set_payload((attachment).read())
-    encoders.encode_base64(attachment_package)
-    attachment_package.add_header('Content-Disposition', "attachment; filename= " + filename)
-    msg.attach(attachment_package)
-    text = msg.as_string()
-    print("Connecting to server...")
-    TIE_server = smtplib.SMTP(smtp_server, smtp_port)
-    TIE_server.starttls()
-    TIE_server.login(email_from, pswd)
-    print("Succesfully connected to server")
-    print()
-    print(f"Sending email to: {email_to}...")
-    TIE_server.sendmail(email_from, email_to, text)
-    print(f"Email sent to: {email_to}")
-    print()
-    TIE_server.quit()
+    with st.spinner(text='Creating your mashup...'):
+      msg = MIMEMultipart()
+      msg['From'] = email_from
+      msg['To'] = email_to
+      msg['Subject'] = subject
+      msg.attach(MIMEText(body, 'plain'))
+      filename = item
+      attachment= open(filename, 'rb') 
+      attachment_package = MIMEBase('application', 'octet-stream')
+      attachment_package.set_payload((attachment).read())
+      encoders.encode_base64(attachment_package)
+      attachment_package.add_header('Content-Disposition', "attachment; filename= " + filename)
+      msg.attach(attachment_package)
+      text = msg.as_string()
+      print("Connecting to server...")
+      TIE_server = smtplib.SMTP(smtp_server, smtp_port)
+      TIE_server.starttls()
+      TIE_server.login(email_from, pswd)
+      print("Succesfully connected to server")
+      print()
+      print(f"Sending email to: {email_to}...")
+      TIE_server.sendmail(email_from, email_to, text)
+      print(f"Email sent to: {email_to}")
+      print()
+      TIE_server.quit()
     st.success('Success! Your mashup will shortly arrive in your mailbox :)')
-
 def script(sn,em,no,dur):
     singer = sn
     n = no
@@ -112,11 +112,10 @@ def script(sn,em,no,dur):
     cut_first_y_sec(singer,n,y)
     file='concat.mp3'
     mail(zipit(file),em)
-
 with st.form(key="form1"):
     singer_name=st.text_input(label="Singer Name",value='')
-    no_of_vids=st.text_input(label="\# of videos",value=0)
-    dur=st.text_input(label="duration of each video",value=0)
+    no_of_vids=st.number_input(label="\# of videos",value=0)
+    dur=st.number_input(label="duration of each video",value=0)
     email=st.text_input(label="Email Id",value='')
     submit=st.form_submit_button(label="Submit")
     pat = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b'
@@ -131,10 +130,10 @@ with st.form(key="form1"):
         st.error('WARNING: Invalid email! Please try again.')
       else:
         with st.spinner(text = 'Extracting information…'):
-            sleep(3)
-        folder = 'Video_files'
-        for filename in os.listdir(folder):
-          file_path = os.path.join(folder, filename)  
-          if os.path.isfile(file_path) or os.path.islink(file_path): 
-            os.unlink(file_path)
-        script(singer_name,email,int(no_of_vids),int(dur))
+          sleep(3)
+          folder = 'Video_files'
+          for filename in os.listdir(folder):
+            file_path = os.path.join(folder, filename)  
+            if os.path.isfile(file_path) or os.path.islink(file_path): 
+              os.unlink(file_path)
+        script(singer_name,email,no_of_vids,dur)
